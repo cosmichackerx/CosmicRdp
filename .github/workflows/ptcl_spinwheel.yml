@@ -1,0 +1,110 @@
+name: PTCL SpinWheel Automation
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  run-spinwheel:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.9
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tesseract-ocr libtesseract-dev libleptonica-dev pkg-config
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4 pillow pytesseract
+
+    - name: Run SpinWheel script
+      env:
+        PHONE_NUMBER: 03367307471  # Replace with your test phone number or use secrets
+      run: |
+        python -c "
+import os
+import requests
+from bs4 import BeautifulSoup
+from PIL import Image
+import pytesseract
+from io import BytesIO
+
+phone_number = os.getenv('PHONE_NUMBER')
+if not phone_number:
+    print('PHONE_NUMBER env var not set')
+    exit(1)
+
+session = requests.Session()
+headers = {
+    'User -Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Referer': 'https://my.ptcl.net.pk/SpinTheWheel/Default.aspx'
+}
+
+url_form = 'https://my.ptcl.net.pk/SpinTheWheel/Default.aspx'
+response = session.get(url_form, headers=headers)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+viewstate = soup.find('input', {'id': '__VIEWSTATE'})['value']
+event_validation = soup.find('input', {'id': '__EVENTVALIDATION'})['value']
+viewstate_generator = soup.find('input', {'id': '__VIEWSTATEGENERATOR'})['value']
+
+captcha_img_url = 'https://my.ptcl.net.pk/SpinTheWheel/Captcha.aspx'
+captcha_response = session.get(captcha_img_url, headers=headers)
+captcha_img = Image.open(BytesIO(captcha_response.content))
+
+captcha_text = pytesseract.image_to_string(captcha_img, config='--psm 8 digits')
+captcha_text = ''.join(filter(str.isdigit, captcha_text))[:4]
+
+if len(captcha_text) != 4:
+    print('CAPTCHA recognition failed. Try again.')
+    exit(1)
+
+print(f'Recognized CAPTCHA: {captcha_text}')
+
+form_data = {
+    '__EVENTTARGET': '',
+    '__EVENTARGUMENT': '',
+    '__VIEWSTATE': viewstate,
+    '__VIEWSTATEGENERATOR': viewstate_generator,
+    '__EVENTVALIDATION': event_validation,
+    'txtMobile': phone_number,
+    'txtCaptcha': captcha_text,
+    'chkTerms': 'on',
+    'btnNext': 'Start Game'
+}
+
+response_form = session.post(url_form, data=form_data, headers=headers)
+if 'SpinWheel.aspx' not in response_form.text:
+    print('Form submission failed. Check CAPTCHA or phone number.')
+    exit(1)
+
+print('Form submitted successfully. Proceeding to spin...')
+
+spin_url = 'https://my.ptcl.net.pk/SpinTheWheel/SpinWheel.aspx/SpinWheels'
+spin_headers = {
+    'Content-Type': 'application/json',
+    'Referer': 'https://my.ptcl.net.pk/SpinTheWheel/SpinWheel.aspx',
+    'User -Agent': headers['User -Agent'],
+    'Accept': '*/*'
+}
+
+spin_response = session.post(spin_url, json={}, headers=spin_headers)
+if spin_response.status_code == 200:
+    try:
+        reward = spin_response.json()
+        print(f'🎉 Reward Received: {reward}')
+    except Exception as e:
+        print('Failed to parse reward:', e)
+else:
+    print('Spin request failed.')
+"

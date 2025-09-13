@@ -1,0 +1,35 @@
+name: Free Windows RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - name: Set RDP password
+      run: |
+        net user runneradmin YourPassword123!
+        echo "Password changed successfully."
+    - name: Enable RDP
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        echo "RDP enabled successfully."
+    - name: Get Public IP
+      run: |
+        $ip = (Invoke-RestMethod -Uri "https://api.ipify.org")
+        echo "RDP IP: $ip"
+    - name: Show connection info
+      run: |
+        $ip = (Invoke-RestMethod -Uri "https://api.ipify.org")
+        Write-Host "========================================"
+        Write-Host "RDP IP: $ip"
+        Write-Host "Username: runneradmin"
+        Write-Host "Password: YourPassword123!"
+        Write-Host "========================================"
+
+    - name: Keep session alive for 6 hours (max time)
+      run: |
+        echo "RDP is enabled. Keep this job running to maintain the session."
+        Start-Sleep -Seconds 21600
